@@ -74,7 +74,7 @@ public class MainController : MonoBehaviour
         var options = {...}
         await TCBSDK.Instance.ModelsGet<ModelHello>(new ModelsReqParams() { modelName = "hello", options = options });
         await app.Models.Get<ModelHello>(new ModelsReqParams() { modelName = "hello", options = options });
-        
+
         // 调用云函数示例
         var data = {...}
         await TCBSDK.Instance.CallFunction<HelloFnResult>(new CallFunctionParams() { name = "helloFn", data = data });
@@ -85,7 +85,7 @@ public class MainController : MonoBehaviour
 
 ## 推荐开发流程
 
-![](https://dx-works-1302213499.cos.ap-nanjing.myqcloud.com/unity-cloudbase-minigame%2F7.png?1)
+![](Docs/Images/7.png)
 
 1. Unity 编辑器开发阶段
 
