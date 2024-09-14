@@ -6,41 +6,43 @@
 
 0. 新建云函数 getUserUUID（非必须）
 
-    > 什么场景需要？  
-    > 使用云开发在微信小游戏中会静默登录，但在云开发中并没有对应的用户实体。所以可以通过该云函数获取登录用户的 UUID，开发者可根据该用户 UUID 去关联自己的用户体系。  
-    > 接下来就可以使用 `TCBSDK.Instance.GetUserUUID()` 来获取到用户的 UUID 了
+   > 什么场景需要？  
+   > 使用云开发在微信小游戏中会静默登录，但在云开发中并没有对应的用户实体。所以可以通过该云函数获取登录用户的 UUID，开发者可根据该用户 UUID 去关联自己的用户体系。  
+   > 接下来就可以使用 `TCBSDK.Instance.GetUserUUID()` 来获取到用户的 UUID 了
 
-    a. 在云开发云后台新建 getUserUUID 云函数
+   a. 在云开发云后台新建 getUserUUID 云函数
 
-    b. 下载到本地并安装依赖
-    
-    ```sh
-    $ tcb fn code download getUserUUID -e <你的云开发环境ID>
-    $ cd functions/getUserUUID/
-    $ npm init --yes
-    $ npm install --save wx-server-sdk@latest
-    ```
+   b. 下载到本地并安装依赖
 
-    c. 修改代码为以下
-    ```js
-    const cloud = require("wx-server-sdk");
-    const crypto = require('crypto');
-    cloud.init({
-        env: cloud.DYNAMIC_CURRENT_ENV,
-    });
+   ```sh
+   $ tcb fn code download getUserUUID -e <你的云开发环境ID>
+   $ cd functions/getUserUUID/
+   $ npm init --yes
+   $ npm install --save wx-server-sdk@latest
+   ```
 
-    exports.main = async (event, context) => {
-        const { OPENID } = cloud.getWXContext();
-        return {
-            uuid: crypto.createHash('md5').update(OPENID).digest('hex'),
-        };
-    };
-    ```
+   c. 修改代码为以下
 
-    d. 上传代码
-    ```sh
-    $ tcb fn code update getUserUUID -e <你的云开发环境ID>
-    ```
+   ```js
+   const cloud = require("wx-server-sdk");
+   const crypto = require("crypto");
+   cloud.init({
+     env: cloud.DYNAMIC_CURRENT_ENV,
+   });
+
+   exports.main = async (event, context) => {
+     const { OPENID } = cloud.getWXContext();
+     return {
+       uuid: crypto.createHash("md5").update(OPENID).digest("hex"),
+     };
+   };
+   ```
+
+   d. 上传代码
+
+   ```sh
+   $ tcb fn code update getUserUUID -e <你的云开发环境ID>
+   ```
 
 1. 在你的 Unity 工程中使用 `Assets/Plugins/tcbsdk.jslib` 和 `Assets/Scripts/TCBSDK.cs`
 
@@ -78,6 +80,32 @@ public class MainController : MonoBehaviour
         // 调用云函数示例
         var data = {...}
         await TCBSDK.Instance.CallFunction<HelloFnResult>(new CallFunctionParams() { name = "helloFn", data = data });
+
+        // 调用云数据库示例
+        var database = app.Database();
+        var whereGetRes = await database.Collection("hello").Where(new Dictionary<string, object>
+        {
+            // 查询条件
+        })
+        .Get<ModelHello[]>();
+        var watchObj = database.Collection("hello").Where(new Dictionary<string, object>
+        {
+            // 查询条件
+        })
+        .Watch(new WatchParams<ModelHello>()
+        {
+            OnChange = (WatchChangeData<ModelHello> data) =>
+            {
+                if (data.type != "init")
+                {
+                    Debug.Log($"watch change: {JsonConvert.SerializeObject(data.docChanges)}");
+                }
+            },
+            OnError = (string err) =>
+            {
+                Debug.Log($"watch err: {err}");
+            }
+        });
     }
 
 }
