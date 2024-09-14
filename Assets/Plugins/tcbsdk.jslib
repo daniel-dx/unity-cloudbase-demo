@@ -47,6 +47,39 @@ const asmLibraryArg = {
     asmLibraryArg.Utils().sendMessage(callbackId, result, true);
   },
   /**
+   * Watch 代码示例
+   */
+  HelloWatchFn: function (callbackId, input) {
+    console.log("Call HelloWatchFn", callbackId, input);
+    // action: open / send / close
+    callbackId = UTF8ToString(callbackId);
+    const { action } = asmLibraryArg.Utils().parseInputParams(input);
+    switch (action) {
+      case "open":
+        asmLibraryArg.HelloWatchFn[callbackId] = new _MockWatchAPI();
+        break;
+      case "close":
+        if (asmLibraryArg.HelloWatchFn[callbackId]) {
+          asmLibraryArg.HelloWatchFn[callbackId].close();
+          delete asmLibraryArg.HelloWatchFn[callbackId];
+        }
+        break;
+    }
+
+    function _MockWatchAPI() {
+      this.close = function () {
+        console.log("Close:", callbackId);
+        clearInterval(this.interval);
+      };
+      this.interval = setInterval(() => {
+        const msg = `msg_${callbackId}_${+new Date()}`;
+        console.log("JS Receive message:", msg);
+        asmLibraryArg.Utils().sendMessage(callbackId, msg, true);
+      }, 2000);
+      return this;
+    }
+  },
+  /**
    * 直接调用 wx.xxx API 的示例
    */
   WXLogin: function () {
@@ -174,6 +207,93 @@ const asmLibraryArg = {
     const models = app.models;
     const { data } = await models[modelName][apiName](options);
     asmLibraryArg.Utils().sendMessage(callbackId, data);
+  },
+
+  /**
+   * 用于请求云数据库接口
+   *
+   * @param callbackId
+   * @param params
+   *        params.collectionName
+   *        params.chainList
+   *        params.chainList[].method
+   *        params.chainList[].optionsStr
+   */
+  Database_API: async function (callbackId, params) {
+    callbackId = UTF8ToString(callbackId);
+    const { collectionName, chainList } = asmLibraryArg
+      .Utils()
+      .parseInputParams(params);
+    const constants = asmLibraryArg.Constants();
+    const platform = asmLibraryArg.Platfrom();
+    const app = asmLibraryArg.Utils().getApp();
+    let db;
+
+    if (platform === constants.PLATFROM.WX) {
+      db = wx.cloud.database();
+    } else if (platform === constants.PLATFROM.WEB) {
+      db = app.database();
+    }
+
+    let chainObj = collectionName ? db.collection(collectionName) : null;
+
+    let lastItem = chainList[chainList.length - 1];
+    if (lastItem.method === "watch") {
+      // watch 的特殊处理
+
+      const { action } = JSON.parse(lastItem.optionsStr);
+      if (action === "open") {
+        // 启动 watch
+
+        chainList.forEach((chainItem) => {
+          // const { method, optionsStr } = chainItem; // 这样在转换成小游戏时这句代码会没了，只能忍受转换工具的 BUG
+          const method = chainItem.method;
+          const optionsStr = chainItem.optionsStr;
+          if (method === "watch") {
+            chainObj = chainObj.watch({
+              onChange: function (data) {
+                // 屏蔽差异：微信初始时 data.type = "init"，而 web 为 data.msgType = "INIT_EVENT"
+                if (data.msgType === "INIT_EVENT") {
+                  data.type = "init";
+                }
+                asmLibraryArg.Utils().sendMessage(callbackId, { data });
+              },
+              onError: function (err) {
+                asmLibraryArg.Utils().sendMessage(callbackId, { err });
+              },
+            });
+          } else {
+            chainObj = chainObj[method](
+              optionsStr ? JSON.parse(optionsStr) : ""
+            );
+          }
+        });
+        asmLibraryArg.Database_API[callbackId] = chainObj;
+      } else if (action === "close") {
+        // 关闭 watch
+        if (asmLibraryArg.Database_API[callbackId]) {
+          asmLibraryArg.Database_API[callbackId].close();
+          delete asmLibraryArg.Database_API[callbackId];
+        }
+      }
+    } else {
+      // 普通异步接口调
+
+      chainList.forEach((chainItem) => {
+        const method = chainItem.method;
+        const optionsStr = chainItem.optionsStr;
+        let options = optionsStr ? JSON.parse(optionsStr) : "";
+        if (["add", "update", "set"].includes(method)) {
+          // 小程序入参需要增加 data 属性
+          if (platform === constants.PLATFROM.WX) {
+            options = { data: options };
+          }
+        }
+        chainObj = chainObj[method](options);
+      });
+      const data = await chainObj;
+      asmLibraryArg.Utils().sendMessage(callbackId, data.data || data);
+    }
   },
 
   /**

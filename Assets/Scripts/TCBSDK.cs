@@ -135,7 +135,14 @@ namespace TencentCloud.CloudBase
             private App() { }
 
             IModels IApp.Models { get => Models.Instance; }
+
+            public IDatabase Database()
+            {
+                return new Database();
+            }
         }
+
+        #region 数据模型
 
         private class Models : IModels
         {
@@ -195,6 +202,192 @@ namespace TencentCloud.CloudBase
 
         #endregion
 
+        #region 云数据库
+
+        private class Database : IDatabase
+        {
+            public ICommand Command => new CommandHandler();
+            public ICollection Collection(string name) => new CollectionHandler(name);
+
+            private static async Task<T> CommonHandler<T>(DatabaseAPIParam param)
+            {
+                (string, TaskCompletionSource<string>) asyncTask = Internal.GetAsyncTask();
+
+                Internal.Database_API(asyncTask.Item1, JsonConvert.SerializeObject(param));
+
+                string result = await asyncTask.Item2.Task;
+                return Internal.ParseOutputResult<T>(result);
+            }
+
+            public class CollectionHandler : ICollection
+            {
+                private readonly string collectionName;
+                public CollectionHandler(string name)
+                {
+                    collectionName = name;
+                }
+
+                public IDocument Doc(string id) => new DocumentHandler(collectionName, id);
+                public Task<CollectionCreateRes> Add(object data)
+                {
+                    return CommonHandler<CollectionCreateRes>(new DatabaseAPIParam()
+                    {
+                        collectionName = collectionName,
+                        chainList = new[] {
+                            new ChainItem() {
+                                method = "add",
+                                optionsStr = JsonConvert.SerializeObject(data)
+                            }
+                        }
+                    });
+                }
+                public IQuery Where(object filter) => new QueryHandler(collectionName, filter);
+                public void Get() { /* 获取集合数据实现 */ }
+
+            }
+
+            public class DocumentHandler : IDocument
+            {
+                private string collectionName;
+                private string documentId;
+                public DocumentHandler(string collectionName, string id)
+                {
+                    this.collectionName = collectionName;
+                    this.documentId = id;
+                }
+
+                public void Get() { /* 获取文档数据实现 */ }
+                public void Update(object data) { /* 更新文档数据实现 */ }
+                public void Set(object data) { /* 设置文档数据实现 */ }
+                public void Remove() { /* 删除文档实现 */ }
+            }
+
+            public class QueryHandler : IQuery
+            {
+                private string collectionName;
+                private object filter;
+                public QueryHandler(string collectionName, object filter)
+                {
+                    this.collectionName = collectionName;
+                    this.filter = filter;
+                }
+
+                public Task<T> Get<T>()
+                {
+                    return CommonHandler<T>(new DatabaseAPIParam()
+                    {
+                        collectionName = collectionName,
+                        chainList = new[] {
+                            new ChainItem() {
+                                method = "where",
+                                optionsStr = JsonConvert.SerializeObject(filter)
+                            },
+                            new ChainItem() {
+                                method = "get",
+                                optionsStr = ""
+                            }
+                        }
+                    });
+                }
+                public void Update(object data) { /* 更新查询结果实现 */ }
+                public void Remove() { /* 删除查询结果实现 */ }
+
+                public IWatchObj Watch<T>(WatchParams<T> param)
+                {
+
+                    string uuid = "watch_" + Guid.NewGuid().ToString();
+                    WatchObj cls = new(uuid, (string data) => param.OnChange(JsonConvert.DeserializeObject<WatchChangeData<T>>(data)), (string data) => param.OnError(JsonConvert.DeserializeObject<string>(data)));
+                    Internal.watchDictionary.Add(uuid, cls);
+                    Internal.Database_API(uuid, JsonConvert.SerializeObject(new DatabaseAPIParam()
+                    {
+                        collectionName = collectionName,
+                        chainList = new[] {
+                              new ChainItem()
+                              {
+                                method = "where",
+                                optionsStr = JsonConvert.SerializeObject(filter)
+                              },
+                              new ChainItem()
+                              {
+                                method = "watch",
+                                optionsStr = JsonConvert.SerializeObject(new Dictionary<string, string>{
+                                    ["action"] = "open"
+                                })
+                              }
+                        }
+                    }));
+                    return cls;
+                }
+            }
+
+            public class CommandHandler : ICommand
+            {
+                public object GreaterThan(string fieldName, int value)
+                {
+                    return new
+                    {
+                    };
+                }
+            }
+
+        }
+
+        private class ChainItem
+        {
+            public string method { get; set; }
+            public string optionsStr { get; set; }
+        }
+        private class DatabaseAPIParam
+        {
+            public string collectionName { get; set; }
+            public ChainItem[] chainList { get; set; }
+        }
+
+        private class WatchObj : IWatchObj
+        {
+            readonly string callbackId;
+
+            private event OnWatchHandler<string> OnChange;
+            private event OnWatchHandler<string> OnError;
+
+            public WatchObj(string callbackIdInput, OnWatchHandler<string> changeCallback, OnWatchHandler<string> errorCallback)
+            {
+                callbackId = callbackIdInput;
+                OnChange += changeCallback;
+                OnError += errorCallback;
+            }
+
+            public void Close()
+            {
+                Internal.Database_API(callbackId, JsonConvert.SerializeObject(new DatabaseAPIParam()
+                {
+                    chainList = new[] {
+                              new ChainItem() {
+                                method = "watch",
+                                optionsStr = JsonConvert.SerializeObject(new Dictionary<string, string>{
+                                    ["action"] = "close"
+                                })
+                            },
+                        }
+                }));
+                Internal.watchDictionary.Remove(callbackId);
+            }
+
+            public void PerformChangeAction(string msg)
+            {
+                OnChange?.Invoke(msg);
+            }
+
+            public void PerformErrorAction(string err)
+            {
+                OnError?.Invoke(err);
+            }
+        }
+
+        #endregion
+
+        #endregion
+
         #region 内部方法
 
         private class Internal
@@ -215,6 +408,9 @@ namespace TencentCloud.CloudBase
             [DllImport("__Internal")]
             public static extern void Models_API(string callbackId, string apiName, string input);
 
+            [DllImport("__Internal")]
+            public static extern void Database_API(string callbackId, string input);
+
             public static string ParseInputParams<T>(T InputParams)
             {
                 return JsonConvert.SerializeObject(InputParams);
@@ -233,7 +429,9 @@ namespace TencentCloud.CloudBase
                 return (uuid, tcs);
             }
 
-            public static Dictionary<string, TaskCompletionSource<string>> tcsDictionary = new();
+            public static readonly Dictionary<string, TaskCompletionSource<string>> tcsDictionary = new();
+
+            public static readonly Dictionary<string, WatchObj> watchDictionary = new();
 
             public static string CONST_GAME_OBJECT_NAME = "TCBSDK";
 
@@ -284,20 +482,37 @@ namespace TencentCloud.CloudBase
         public void OnAsyncFnCompleted(string result)
         {
             AsyncResponse<string> res = Internal.ParseOutputResult<AsyncResponse<string>>(result);
-            Internal.tcsDictionary[res.callbackId].SetResult(res.result);
-            // FIXME: 这一句是为了让整个回调能够正常执行，但原因不明，也很奇怪，后面再深入了解
-            Task.Factory.StartNew(() => { });
-            Internal.tcsDictionary.Remove(res.callbackId);
+
+            if (res.callbackId.StartsWith("watch_"))
+            {
+                var resultData = Internal.ParseOutputResult<Dictionary<string, object>>(res.result);
+                if (resultData.ContainsKey("err"))
+                {
+                    Internal.watchDictionary[res.callbackId].PerformErrorAction(resultData["err"] as string);
+                }
+                else
+                {
+                    Internal.watchDictionary[res.callbackId].PerformChangeAction(JsonConvert.SerializeObject(resultData["data"]));
+                }
+
+            }
+            else
+            {
+                Internal.tcsDictionary[res.callbackId].SetResult(res.result);
+                // FIXME: 这一句是为了让整个回调能够正常执行，但原因不明，也很奇怪，后面再深入了解
+                Task.Factory.StartNew(() => { });
+                Internal.tcsDictionary.Remove(res.callbackId);
+            }
         }
-
-
     }
 
-    #region 类型定义
+    #region 类型和接口定义
 
     public interface IApp
     {
         IModels Models { get; }
+
+        IDatabase Database();
     }
 
     public interface IModels
@@ -400,6 +615,79 @@ namespace TencentCloud.CloudBase
     /// 删除数据模型响应数据类型
     /// </summary>
     public class ModelsDeleteRes : ModelsUpdateRes { }
+
+    public interface IDatabase
+    {
+        ICollection Collection(string name);
+        ICommand Command { get; }
+    }
+
+    public interface ICollection
+    {
+        IDocument Doc(string id);
+        Task<CollectionCreateRes> Add(object data);
+        IQuery Where(object filter);
+        void Get();
+    }
+
+    public interface IDocument
+    {
+        void Get();
+        void Update(object data);
+        void Set(object data);
+        void Remove();
+    }
+
+    public interface IQuery
+    {
+        Task<T> Get<T>();
+        void Update(object data);
+        void Remove();
+
+        IWatchObj Watch<T>(WatchParams<T> param);
+    }
+
+    public interface ICommand
+    {
+        object GreaterThan(string fieldName, int value);
+    }
+
+    public delegate void OnWatchHandler<T>(T data);
+    public interface IWatchObj
+    {
+        void Close();
+    }
+    public class WatchParams<T>
+    {
+        public OnWatchHandler<WatchChangeData<T>> OnChange { get; set; }
+        public OnWatchHandler<string> OnError { get; set; }
+    }
+    public class WatchChangeData<T>
+    {
+        public WatchChangeDataDocChange<T>[] docChanges { get; set; }
+        public T[] docs { get; set; }
+        public int id { get; set; }
+
+        // init 为初始连接发送。undefined 为后续发送
+        public string type { get; set; }
+    }
+
+    public class WatchChangeDataDocChange<T>
+    {
+        public string dataType { get; set; }
+        public T doc { get; set; }
+        public string docId { get; set; }
+        public int id { get; set; }
+        public string queueType { get; set; }
+    }
+
+    /// <summary>
+    /// 云数据库集合创建单条数据响应数据类型
+    /// </summary>
+    public class CollectionCreateRes
+    {
+        public string id { get; set; }
+    }
 
     #endregion
 }

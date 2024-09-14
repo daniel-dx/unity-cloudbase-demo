@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Demo;
@@ -11,18 +12,29 @@ public class MainController : MonoBehaviour
 
     IApp app;
 
+    TencentCloud.CloudBase.IWatchObj watchObj;
+
     async void Start()
     {
-        DemoSDK.Instance.Hello();
-        DemoSDK.Instance.HelloWithInput(new HelloWithInputParams() { name = "daniel666" });
-        HelloWithReturnResult output = DemoSDK.Instance.HelloWithReturn();
-        Debug.Log(">>>>>>" + output);
-        Debug.Log(">>>>>>" + output.name);
-        DemoSDK.Instance.HelloCallOtherFn();
-        HelloWithReturnResult result1 = await DemoSDK.Instance.HelloAsyncFn(new HelloWithInputParams() { name = "daniel666" });
-        Debug.Log("done HelloAsyncFn 1: " + result1.name);
-        HelloWithReturnResult result2 = await DemoSDK.Instance.HelloAsyncFn(new HelloWithInputParams() { name = "sarah666" });
-        Debug.Log("done HelloAsyncFn 2: " + result2.name);
+        // DemoSDK.Instance.Hello();
+        // DemoSDK.Instance.HelloWithInput(new HelloWithInputParams() { name = "daniel666" });
+        // HelloWithReturnResult output = DemoSDK.Instance.HelloWithReturn();
+        // Debug.Log(">>>>>>" + output);
+        // Debug.Log(">>>>>>" + output.name);
+        // DemoSDK.Instance.HelloCallOtherFn();
+        // HelloWithReturnResult result1 = await DemoSDK.Instance.HelloAsyncFn(new HelloWithInputParams() { name = "daniel666" });
+        // Debug.Log("done HelloAsyncFn 1: " + result1.name);
+        // HelloWithReturnResult result2 = await DemoSDK.Instance.HelloAsyncFn(new HelloWithInputParams() { name = "sarah666" });
+        // Debug.Log("done HelloAsyncFn 2: " + result2.name);
+
+        // var watchObj = DemoSDK.Instance.HelloWatchFn().Watch<string>((msg) =>
+        // {
+        //     Debug.Log($"Unity Receive message: {msg}");
+        // });
+
+        // await Wait(3);
+        // Debug.Log(">>> Wait 3 second done");
+        // watchObj.Close();
 
         // DemoSDK.Instance.HelloAsyncFn(new HelloWithInputParams() { name = "daniel666" }).ContinueWith(task =>
         // {
@@ -34,17 +46,18 @@ public class MainController : MonoBehaviour
         // }, TaskScheduler.FromCurrentSynchronizationContext());
 
 #if WEIXINMINIGAME
-        // 1. init
-        app = await TCBSDK.Instance.Init(new CloudInitParams() { env = TestEnv.WX_ENV });
-        Debug.Log(">>> userUUID:" + TCBSDK.Instance.GetUserUUID());
+                // 1. init
+                app = await TCBSDK.Instance.Init(new CloudInitParams() { env = TestEnv.WX_ENV });
+                Debug.Log(">>> userUUID:" + TCBSDK.Instance.GetUserUUID());
 
-        // 2. 调用 API。比如 TCBSDK.Instance.ModelsGet 或 app.Models.Get
-        TestModelGet("9bf3df1366d84eb209a2c0a2099c5685");
-        TestModelList();
-        (string, string) createId = await TestModelCreate();
-        await TestModelUpdate(createId.Item1);
-        await TestModelDelete(createId.Item1, createId.Item2);
-        await TestCallFunction();
+                // 2. 调用 API。比如 TCBSDK.Instance.ModelsGet 或 app.Models.Get
+                // TestModelGet("9bf3df1366d84eb209a2c0a2099c5685");
+                // TestModelList();
+                // (string, string) createId = await TestModelCreate();
+                // await TestModelUpdate(createId.Item1);
+                // await TestModelDelete(createId.Item1, createId.Item2);
+                // await TestCallFunction();
+                await TestDatabase();
 #else
         // 1. init
         app = await TCBSDK.Instance.Init(new CloudInitParams() { env = TestEnv.WEB_ENV });
@@ -54,14 +67,35 @@ public class MainController : MonoBehaviour
         Debug.Log(">>> userUUID:" + TCBSDK.Instance.GetUserUUID());
 
         // 3. 调用 API。比如 TCBSDK.Instance.ModelsGet 或 app.Models.Get
-        TestModelGet("983e93c466d8418c008f7f88303e5006");
-        TestModelList();
-        (string, string) createId = await TestModelCreate();
-        await TestModelUpdate(createId.Item1);
-        await TestModelDelete(createId.Item1, createId.Item2);
-        await TestCallFunction();
+        // TestModelGet("983e93c466d8418c008f7f88303e5006");
+        // TestModelList();
+        // (string, string) createId = await TestModelCreate();
+        // await TestModelUpdate(createId.Item1);
+        // await TestModelDelete(createId.Item1, createId.Item2);
+        // await TestCallFunction();
+        await TestDatabase();
 #endif
 
+    }
+
+    public async Task Wait(float seconds)
+    {
+        if (seconds <= 0)
+        {
+            await Task.CompletedTask;
+        }
+        else
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            StartCoroutine(WaitForSecondsCoroutine(seconds, tcs));
+            await tcs.Task;
+        }
+    }
+
+    private static IEnumerator WaitForSecondsCoroutine(float seconds, TaskCompletionSource<bool> tcs)
+    {
+        yield return new WaitForSeconds(seconds);
+        tcs.SetResult(true);
     }
 
     async void TestModelGet(string id)
@@ -224,7 +258,49 @@ public class MainController : MonoBehaviour
         var res = await TCBSDK.Instance.CallFunction<ModelsList<ModelHello>>(new CallFunctionParams() { name = "modelsAPI", data = data });
         Debug.Log($"{res.code} | {res.requestId} | {res.message} | {res.result.records.Count}");
     }
+
+    async Task TestDatabase()
+    {
+        var database = app.Database();
+
+        var addRes = await database.Collection("hello").Add(new Dictionary<string, object>
+        {
+            ["name"] = "Thinking in Java"
+        });
+        Debug.Log($"addRes: {addRes.id}");
+
+        var whereGetRes = await database.Collection("hello").Where(new Dictionary<string, object>
+        {
+        }).Get<ModelHello[]>();
+        Debug.Log($"whereGetRes: {whereGetRes[0].name}");
+
+        watchObj = database.Collection("hello").Where(new Dictionary<string, object>
+        {
+        }).Watch(new WatchParams<ModelHello>()
+        {
+            OnChange = (WatchChangeData<ModelHello> data) =>
+            {
+                if (data.type == "init")
+                {
+                    Debug.Log($"watch change: {JsonConvert.SerializeObject(data.docChanges)}");
+                }
+            },
+            OnError = (string err) =>
+            {
+                Debug.Log($"watch err: {err}");
+            }
+        });
+
+        await Task.FromResult("");
+    }
+
+    public void HandleCloseWatch() 
+    {
+        watchObj.Close();
+    }
 }
+
+
 
 class ModelHello : ModelsSystem
 {
