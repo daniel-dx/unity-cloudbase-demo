@@ -280,7 +280,7 @@ public class MainController : MonoBehaviour
         {
             OnChange = (WatchChangeData<ModelHello> data) =>
             {
-                if (data.type == "init")
+                if (data.type != "init")
                 {
                     Debug.Log($"watch change: {JsonConvert.SerializeObject(data.docChanges)}");
                 }
