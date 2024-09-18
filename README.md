@@ -1,6 +1,6 @@
 # Unity + 腾讯云开发 = 微信小游戏
 
-> 建议先阅读【 [How Can Unity+腾讯云开发=微信小游戏](https://mp.weixin.qq.com/s/RTmWhx7BUytSA3fCWfBb3g) 】和 【[云开发让 Unity 微信小游戏实时聊起来](https://mp.weixin.qq.com/s/FxLga4VcV0Uxnhoy3MWxLw)】这篇文章了解下设计思路和实现细节
+> 建议先阅读【 [How Can Unity+腾讯云开发=微信小游戏](https://mp.weixin.qq.com/s/RTmWhx7BUytSA3fCWfBb3g) 】和 【[云开发让 Unity 微信小游戏实时聊起来](https://mp.weixin.qq.com/s/FxLga4VcV0Uxnhoy3MWxLw)】两篇文章了解下设计思路和实现细节
 
 ## 如何使用
 
